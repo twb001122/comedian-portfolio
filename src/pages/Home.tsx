@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { 
   Box, 
   Typography, 
@@ -29,129 +29,55 @@ interface ProfileData {
   tagline: string;
 }
 
-const Home = () => {
-  interface Photo {
-    id: number;
-    url: string;
-    title: string;
-    description?: string;
-    event_id?: number;
-    event_name?: string;
-    created_at: string;
-  }
-  
-  interface ShowType {
-    id: number;
-    name: string;
-  }
-  
-  interface Show {
-    id: number;
-    title: string;
-    date: string;
-    time: string;
-    city: string;
-    venue: string;
-    description: string;
-    ticket_price: string;
-    ticket_link?: string;
-    types?: number[]; // 演出类型ID数组
-  }
+interface Photo {
+  id: number;
+  url: string;
+  title: string;
+  description?: string;
+  event_id?: number;
+  event_name?: string;
+  created_at: string;
+}
 
+interface ShowType {
+  id: number;
+  name: string;
+}
+
+interface Show {
+  id: number;
+  title: string;
+  date: string;
+  time: string;
+  city: string;
+  venue: string;
+  description: string;
+  ticket_price: string;
+  ticket_link?: string;
+  types?: number[];
+}
+
+// 加载状态枚举
+enum LoadingStage {
+  PROFILE = 'profile',
+  SHOWS = 'shows', 
+  PHOTOS = 'photos',
+  COMPLETE = 'complete'
+}
+
+const Home = () => {
   const [profile, setProfile] = useState<ProfileData | null>(null);
-  const [loading, setLoading] = useState(true);
   const [upcomingShows, setUpcomingShows] = useState<Show[]>([]);
   const [showTypes, setShowTypes] = useState<ShowType[]>([]);
   const [photos, setPhotos] = useState<Photo[]>([]);
   
-  // 用于调试
-  useEffect(() => {
-    console.log('photos状态更新:', photos);
-  }, [photos]);
+  // 分阶段加载状态
+  const [loadingStage, setLoadingStage] = useState<LoadingStage>(LoadingStage.PROFILE);
+  const [profileLoaded, setProfileLoaded] = useState(false);
+  const [showsLoaded, setShowsLoaded] = useState(false);
+  const [photosLoaded, setPhotosLoaded] = useState(false);
 
-  useEffect(() => {
-    const fetchData = async () => {
-      try {
-        // 获取个人资料数据
-        const { data: profileData, error: profileError } = await supabase
-          .from('profiles')
-          .select('*')
-          .single();
-
-        if (profileError) {
-          console.error('获取个人资料失败:', profileError);
-        } else {
-          setProfile(profileData);
-        }
-
-        // 获取演出类型数据
-        const { data: typesData, error: typesError } = await supabase
-          .from('show_types')
-          .select('*');
-          
-        if (typesError) {
-          console.error('获取演出类型失败:', typesError);
-        } else {
-          setShowTypes(typesData || []);
-        }
-
-        // 获取即将到来的演出
-        const now = new Date().toISOString();
-        const { data: showsData, error: showsError } = await supabase
-          .from('shows')
-          .select('*, show_type_relations(type_id)')
-          .gt('date', now)
-          .order('date', { ascending: true })
-          .limit(10);
-
-        if (showsError) {
-          console.error('获取演出数据失败:', showsError);
-        } else {
-          // 处理演出类型数据
-          const processedShows = showsData?.map(show => {
-            const types = show.show_type_relations?.map((relation: { type_id: number }) => relation.type_id) || [];
-            // eslint-disable-next-line @typescript-eslint/no-unused-vars
-            const { show_type_relations: _, ...showData } = show;
-            return { ...showData, types };
-          });
-          
-          setUpcomingShows(processedShows || []);
-        }
-        
-        // 获取最新的3张照片
-        try {
-          console.log('开始获取照片数据');
-          const { data: photosData, error: photosError } = await supabase
-            .from('photos')
-            .select('*')
-            .order('created_at', { ascending: false })
-            .limit(3);
-            
-          if (photosError) {
-            console.error('获取照片数据失败:', photosError);
-          } else {
-            console.log('首页获取的照片数据:', photosData);
-            
-            if (photosData && photosData.length > 0) {
-              setPhotos(photosData);
-            } else {
-              console.log('没有获取到照片数据');
-            }
-          }
-        } catch (photoError) {
-          console.error('获取照片时发生异常:', photoError);
-        }
-      } catch (error) {
-        console.error('数据获取失败:', error);
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    fetchData();
-  }, []);
-
-  // 临时数据（当数据库中没有数据时使用）
+  // 临时数据
   const tempProfile: ProfileData = {
     id: 1,
     name: '马达',
@@ -165,8 +91,40 @@ const Home = () => {
     hero_image: 'https://images.unsplash.com/photo-1505373877841-8d25f7d46678?q=80&w=1412&auto=format&fit=crop&ixlib=rb-4.0.3',
     tagline: '用幽默连接世界，让笑声传递温暖'
   };
-  
-  // 临时照片数据
+
+  const tempShows = [
+    {
+      id: 1,
+      title: '周末笑声专场',
+      date: new Date(Date.now() + 3 * 24 * 60 * 60 * 1000).toISOString(),
+      time: '20:00',
+      venue: '糖果LIVE',
+      city: '北京',
+      ticket_price: '120元起',
+      types: [2, 5]
+    },
+    {
+      id: 2,
+      title: '脱口秀小剧场',
+      date: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
+      time: '19:30',
+      venue: '喜剧工厂',
+      city: '上海',
+      ticket_price: '100元起',
+      types: [2]
+    },
+    {
+      id: 3,
+      title: '即兴喜剧之夜',
+      date: new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString(),
+      time: '20:30',
+      venue: '麻辣小剧场',
+      city: '成都',
+      ticket_price: '售票中',
+      types: [1, 3, 6]
+    }
+  ];
+
   const tempPhotos: Photo[] = [
     {
       id: 5,
@@ -194,59 +152,154 @@ const Home = () => {
     }
   ];
 
-  const tempShows = [
-    {
-      id: 1,
-      title: '周末笑声专场',
-      date: new Date(Date.now() + 3 * 24 * 60 * 60 * 1000).toISOString(),
-      time: '20:00',
-      venue: '糖果LIVE',
-      city: '北京',
-      ticket_price: '120元起',
-      types: [2, 5] // 单口, 其他
-    },
-    {
-      id: 2,
-      title: '脱口秀小剧场',
-      date: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
-      time: '19:30',
-      venue: '喜剧工厂',
-      city: '上海',
-      ticket_price: '100元起',
-      types: [2] // 单口
-    },
-    {
-      id: 3,
-      title: '即兴喜剧之夜',
-      date: new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString(),
-      time: '20:30',
-      venue: '麻辣小剧场',
-      city: '成都',
-      ticket_price: '售票中',
-      types: [1, 3, 6] // 主持, 比赛, 即兴
+  // 第一阶段：加载个人资料
+  const loadProfile = useCallback(async () => {
+    try {
+      console.log('🚀 开始加载个人资料...');
+      const { data: profileData, error: profileError } = await supabase
+        .from('profiles')
+        .select('*')
+        .single();
+
+      if (profileError) {
+        console.error('获取个人资料失败:', profileError);
+        setProfile(tempProfile);
+      } else {
+        setProfile(profileData);
+      }
+      
+      setProfileLoaded(true);
+      setLoadingStage(LoadingStage.SHOWS);
+      console.log('✅ 个人资料加载完成');
+    } catch (error) {
+      console.error('个人资料加载异常:', error);
+      setProfile(tempProfile);
+      setProfileLoaded(true);
+      setLoadingStage(LoadingStage.SHOWS);
     }
-  ];
+  }, []);
 
-  const displayProfile = profile || tempProfile;
-  const displayShows = upcomingShows.length > 0 ? upcomingShows : tempShows;
+  // 第二阶段：加载演出信息
+  const loadShows = useCallback(async () => {
+    try {
+      console.log('🚀 开始加载演出信息...');
+      
+      // 获取演出类型数据
+      const { data: typesData, error: typesError } = await supabase
+        .from('show_types')
+        .select('*');
+        
+      if (typesError) {
+        console.error('获取演出类型失败:', typesError);
+      } else {
+        setShowTypes(typesData || []);
+      }
 
-  // 根据演出类型ID获取对应的颜色
+      // 获取即将到来的演出
+      const now = new Date().toISOString();
+      const { data: showsData, error: showsError } = await supabase
+        .from('shows')
+        .select('*, show_type_relations(type_id)')
+        .gt('date', now)
+        .order('date', { ascending: true })
+        .limit(10);
+
+      if (showsError) {
+        console.error('获取演出数据失败:', showsError);
+        setUpcomingShows(tempShows);
+      } else {
+        const processedShows = showsData?.map(show => {
+          const types = show.show_type_relations?.map((relation: { type_id: number }) => relation.type_id) || [];
+          // eslint-disable-next-line @typescript-eslint/no-unused-vars
+          const { show_type_relations: _, ...showData } = show;
+          return { ...showData, types };
+        });
+        
+        setUpcomingShows(processedShows || tempShows);
+      }
+      
+      setShowsLoaded(true);
+      setLoadingStage(LoadingStage.PHOTOS);
+      console.log('✅ 演出信息加载完成');
+    } catch (error) {
+      console.error('演出信息加载异常:', error);
+      setUpcomingShows(tempShows);
+      setShowsLoaded(true);
+      setLoadingStage(LoadingStage.PHOTOS);
+    }
+  }, []);
+
+  // 第三阶段：加载照片画廊
+  const loadPhotos = useCallback(async () => {
+    try {
+      console.log('🚀 开始加载照片画廊...');
+      
+      const { data: photosData, error: photosError } = await supabase
+        .from('photos')
+        .select('*')
+        .order('created_at', { ascending: false })
+        .limit(3);
+        
+      if (photosError) {
+        console.error('获取照片数据失败:', photosError);
+        setPhotos(tempPhotos);
+      } else {
+        console.log('获取的照片数据:', photosData);
+        
+        if (photosData && photosData.length > 0) {
+          setPhotos(photosData);
+        } else {
+          console.log('没有获取到照片数据，使用临时数据');
+          setPhotos(tempPhotos);
+        }
+      }
+      
+      setPhotosLoaded(true);
+      setLoadingStage(LoadingStage.COMPLETE);
+      console.log('✅ 照片画廊加载完成');
+    } catch (error) {
+      console.error('照片加载异常:', error);
+      setPhotos(tempPhotos);
+      setPhotosLoaded(true);
+      setLoadingStage(LoadingStage.COMPLETE);
+    }
+  }, []);
+
+  // 分阶段加载数据
+  useEffect(() => {
+    loadProfile();
+  }, [loadProfile]);
+
+  useEffect(() => {
+    if (loadingStage === LoadingStage.SHOWS && profileLoaded) {
+      // 延迟500ms加载演出信息，让用户先看到个人资料
+      const timer = setTimeout(() => {
+        loadShows();
+      }, 500);
+      return () => clearTimeout(timer);
+    }
+  }, [loadingStage, profileLoaded, loadShows]);
+
+  useEffect(() => {
+    if (loadingStage === LoadingStage.PHOTOS && showsLoaded) {
+      // 延迟1000ms加载照片，让用户先看到演出信息
+      const timer = setTimeout(() => {
+        loadPhotos();
+      }, 1000);
+      return () => clearTimeout(timer);
+    }
+  }, [loadingStage, showsLoaded, loadPhotos]);
+
+  // 工具函数
   const getTypeColor = (typeId: number): string => {
     switch (typeId) {
-      case 1: // 主持
-        return '#4A6FA5'; // 稳重的蓝色
-      case 2: // 单口
-        return '#6B8E23'; // 橄榄绿
-      case 3: // 比赛
-        return '#B85C38'; // 温暖的橙红色
-      case 4: // 商务演出
-        return '#4B0082'; // 靛蓝色
-      case 5: // 其他
-        return '#708090'; // 深灰色
-      case 6: // 即兴
-        return '#C71585'; // 中等紫红色
-      default:
-        return '#8C7851'; // 默认颜色
+      case 1: return '#4A6FA5';
+      case 2: return '#6B8E23';
+      case 3: return '#B85C38';
+      case 4: return '#4B0082';
+      case 5: return '#708090';
+      case 6: return '#C71585';
+      default: return '#8C7851';
     }
   };
 
@@ -255,9 +308,13 @@ const Home = () => {
     return date.toLocaleDateString('zh-CN', { year: 'numeric', month: 'long', day: 'numeric' });
   };
 
+  const displayProfile = profile || tempProfile;
+  const displayShows = upcomingShows.length > 0 ? upcomingShows : tempShows;
+  const displayPhotos = photos.length > 0 ? photos : tempPhotos;
+
   return (
     <Container maxWidth="md" sx={{ py: 8 }}>
-      {/* 简约的个人信息头部 */}
+      {/* 个人信息头部 - 优先加载 */}
       <Box sx={{ mb: 10, display: 'flex', alignItems: 'center' }}>
         <Avatar
           src={displayProfile.avatar_url}
@@ -273,11 +330,11 @@ const Home = () => {
           fontWeight: 500, 
           letterSpacing: '0.05em'
         }}>
-          {loading ? <Skeleton width="200px" /> : displayProfile.name}
+          {!profileLoaded ? <Skeleton width="200px" /> : displayProfile.name}
         </Typography>
       </Box>
 
-      {/* 关于我 */}
+      {/* 关于我 - 优先加载 */}
       <Box sx={{ mb: 8 }}>
         <Typography variant="h2" sx={{ 
           fontSize: '1.5rem', 
@@ -292,7 +349,7 @@ const Home = () => {
           <span role="img" aria-label="person">👤</span> 关于我
         </Typography>
         
-        {loading ? (
+        {!profileLoaded ? (
           <>
             <Skeleton variant="text" height={20} />
             <Skeleton variant="text" height={20} />
@@ -321,7 +378,7 @@ const Home = () => {
             <span role="img" aria-label="trophy">🏆</span> 荣誉成就
           </Typography>
           
-          {loading ? (
+          {!profileLoaded ? (
             <>
               <Skeleton variant="text" height={24} />
               <Skeleton variant="text" height={24} />
@@ -352,7 +409,7 @@ const Home = () => {
         </Box>
       </Box>
 
-      {/* 演出行程 */}
+      {/* 演出行程 - 第二阶段加载 */}
       <Box sx={{ mb: 8 }}>
         <Box sx={{ 
           display: 'flex', 
@@ -391,7 +448,7 @@ const Home = () => {
           </Button>
         </Box>
         
-        {loading ? (
+        {!showsLoaded ? (
           <>
             <Skeleton variant="rectangular" height={50} sx={{ mb: 2 }} />
             <Skeleton variant="rectangular" height={50} sx={{ mb: 2 }} />
@@ -402,20 +459,20 @@ const Home = () => {
             <Table sx={{ minWidth: 650 }} aria-label="演出行程表">
               <TableBody>
                 {displayShows.map((show, index) => (
-                    <TableRow
-                      key={show.id}
-                      sx={{ 
-                        '&:last-child td, &:last-child th': { border: 0 },
-                        '& td': { borderBottom: '1px solid #f0f0f0', py: 2.5 },
-                        bgcolor: index % 2 === 0 ? '#FAF7F0' : '#F5F2EA',
-                        transition: 'all 0.3s ease',
-                        '&:hover': {
-                          bgcolor: index % 2 === 0 ? '#F7F4E8' : '#F2EFE5',
-                          boxShadow: 'inset 0 0 0 1px rgba(0,0,0,0.05)',
-                          cursor: 'pointer'
-                        }
-                      }}
-                    >
+                  <TableRow
+                    key={show.id}
+                    sx={{ 
+                      '&:last-child td, &:last-child th': { border: 0 },
+                      '& td': { borderBottom: '1px solid #f0f0f0', py: 2.5 },
+                      bgcolor: index % 2 === 0 ? '#FAF7F0' : '#F5F2EA',
+                      transition: 'all 0.3s ease',
+                      '&:hover': {
+                        bgcolor: index % 2 === 0 ? '#F7F4E8' : '#F2EFE5',
+                        boxShadow: 'inset 0 0 0 1px rgba(0,0,0,0.05)',
+                        cursor: 'pointer'
+                      }
+                    }}
+                  >
                     <TableCell component="th" scope="row" sx={{ pl: 3, width: '25%', border: 0 }}>
                       <Typography variant="body2" sx={{ color: '#444' }}>
                         {formatDate(show.date)} {show.time && 
@@ -481,7 +538,7 @@ const Home = () => {
         )}
       </Box>
 
-      {/* 剧照画廊 */}
+      {/* 剧照画廊 - 第三阶段异步加载 */}
       <Box sx={{ mb: 6 }}>
         <Box sx={{ 
           display: 'flex', 
@@ -520,65 +577,28 @@ const Home = () => {
           </Button>
         </Box>
         
-        {/* 剧照画廊 - 横向自适应布局 */}
+        {/* 照片画廊 - 懒加载 */}
         <Box sx={{ mb: 10 }}>
-          {loading ? (
-            <Skeleton variant="rectangular" height={400} />
-          ) : photos && photos.length > 0 ? (
+          {!photosLoaded ? (
             <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 3 }}>
-              {photos.map((photo) => (
-                <Box 
-                  key={photo.id} 
-                  sx={{ 
-                    flexGrow: 1,
-                    flexBasis: '300px',
-                    mb: 3
-                  }}
-                >
-                  <Box 
-                    component="div"
-                    sx={{ 
-                      width: '100%',
-                      height: '300px',
-                      overflow: 'hidden',
-                      borderRadius: '8px',
-                      mb: 1,
-                      boxShadow: '0 4px 12px rgba(0,0,0,0.1)',
-                      backgroundColor: '#f5f5f5',
-                    }}
-                  >
-                    <Box
-                      component="img"
-                      src={photo.url}
-                      alt={photo.title || '剧照'}
-                      sx={{
-                        width: '100%',
-                        height: '100%',
-                        objectFit: 'cover', // 填满容器，可能会裁剪部分图片
-                        transition: 'transform 0.3s',
-                        '&:hover': {
-                          transform: 'scale(1.03)'
-                        }
-                      }}
-                      onClick={() => window.open(photo.url, '_blank')}
-                    />
-                  </Box>
-                  <Typography variant="subtitle1" sx={{ fontWeight: 500 }}>
-                    {photo.title || '精彩瞬间'}
-                  </Typography>
+              {[1, 2, 3].map((index) => (
+                <Box key={index} sx={{ flexGrow: 1, flexBasis: '300px', mb: 3 }}>
+                  <Skeleton variant="rectangular" height={300} sx={{ borderRadius: '8px', mb: 1 }} />
+                  <Skeleton variant="text" width="60%" />
                 </Box>
               ))}
             </Box>
           ) : (
-            // 临时照片数据 - 横向自适应布局
             <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 3 }}>
-              {tempPhotos.map((photo, index) => (
+              {displayPhotos.map((photo, index) => (
                 <Box 
-                  key={index} 
+                  key={photo.id || index} 
                   sx={{ 
                     flexGrow: 1,
                     flexBasis: '300px',
-                    mb: 3
+                    mb: 3,
+                    opacity: 0,
+                    animation: `fadeInUp 0.6s ease-out ${index * 0.2}s forwards`
                   }}
                 >
                   <Box 
@@ -597,10 +617,11 @@ const Home = () => {
                       component="img"
                       src={photo.url}
                       alt={photo.title || '剧照'}
+                      loading="lazy"
                       sx={{
                         width: '100%',
                         height: '100%',
-                        objectFit: 'contain', // 保持原始宽高比
+                        objectFit: 'cover',
                         transition: 'transform 0.3s',
                         '&:hover': {
                           transform: 'scale(1.03)'
@@ -618,6 +639,22 @@ const Home = () => {
           )}
         </Box>
       </Box>
+
+      {/* 添加CSS动画 */}
+      <style>
+        {`
+          @keyframes fadeInUp {
+            from {
+              opacity: 0;
+              transform: translateY(30px);
+            }
+            to {
+              opacity: 1;
+              transform: translateY(0);
+            }
+          }
+        `}
+      </style>
     </Container>
   );
 };
