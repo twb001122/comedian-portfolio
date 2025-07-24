@@ -1,0 +1,20 @@
+{
+  "path": "/Users/tangweibo/codebuddy/comedian-portfolio/dist",
+  "desc": "这是一个喜剧演员个人作品集网站，包含首页展示、演出安排、照片画廊、联系方式等功能，以及完整的后台管理系统，支持演出管理、媒体管理、个人资料编辑等功能。",
+  "id": "2dddd6e6d1c145b583c438ed2f772472",
+  "data": {
+    "spaceKey": "2dddd6e6d1c145b583c438ed2f772472",
+    "connections": {
+      "webIDE": "https://2dddd6e6d1c145b583c438ed2f772472.ap-singapore.cloudstudio.club",
+      "preview": "https://2dddd6e6d1c145b583c438ed2f772472--{port}.ap-singapore.cloudstudio.club",
+      "api": "https://2dddd6e6d1c145b583c438ed2f772472--api.ap-singapore.cloudstudio.club",
+      "pty": "https://2dddd6e6d1c145b583c438ed2f772472--pty.ap-singapore.cloudstudio.club"
+    }
+  },
+  "config": {
+    "api": "https://2dddd6e6d1c145b583c438ed2f772472--api.ap-singapore.cloudstudio.club",
+    "pty": "https://2dddd6e6d1c145b583c438ed2f772472--pty.ap-singapore.cloudstudio.club",
+    "region": "ap-shanghai",
+    "spaceKey": "2dddd6e6d1c145b583c438ed2f772472"
+  }
+}
