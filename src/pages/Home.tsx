@@ -92,7 +92,7 @@ const Home = () => {
     tagline: '用幽默连接世界，让笑声传递温暖'
   };
 
-  const tempShows = [
+  const tempShows: Show[] = [
     {
       id: 1,
       title: '周末笑声专场',
@@ -100,6 +100,7 @@ const Home = () => {
       time: '20:00',
       venue: '糖果LIVE',
       city: '北京',
+      description: '轻松愉快的周末脱口秀专场，与观众分享生活中的趣事',
       ticket_price: '120元起',
       types: [2, 5]
     },
@@ -110,6 +111,7 @@ const Home = () => {
       time: '19:30',
       venue: '喜剧工厂',
       city: '上海',
+      description: '小剧场脱口秀演出，近距离感受幽默魅力',
       ticket_price: '100元起',
       types: [2]
     },
@@ -120,6 +122,7 @@ const Home = () => {
       time: '20:30',
       venue: '麻辣小剧场',
       city: '成都',
+      description: '即兴喜剧表演，每场都有不同的惊喜',
       ticket_price: '售票中',
       types: [1, 3, 6]
     }
