@@ -42,10 +42,11 @@ interface Show {
   title: string;
   description?: string;
   venue: string;
+  city: string;
   date: string;
   time: string;
-  ticket_price?: number;
-  ticket_url?: string;
+  ticket_price?: string;
+  ticket_link?: string;
   show_types?: number[];
   created_at: string;
 }
@@ -70,10 +71,11 @@ const ScheduleManager = () => {
     title: '',
     description: '',
     venue: '',
+    city: '',
     date: new Date(),
     time: new Date(),
     ticket_price: '',
-    ticket_url: '',
+    ticket_link: '',
     show_types: [] as number[]
   });
 
@@ -146,10 +148,11 @@ const ScheduleManager = () => {
         title: showForm.title,
         description: showForm.description || null,
         venue: showForm.venue,
+        city: showForm.city,
         date: showForm.date.toISOString().split('T')[0],
         time: showForm.time.toTimeString().split(' ')[0].substring(0, 5),
-        ticket_price: showForm.ticket_price ? parseFloat(showForm.ticket_price) : null,
-        ticket_url: showForm.ticket_url || null,
+        ticket_price: showForm.ticket_price || null,
+        ticket_link: showForm.ticket_link || null,
       };
 
       let showId;
@@ -229,10 +232,11 @@ const ScheduleManager = () => {
       title: show.title,
       description: show.description || '',
       venue: show.venue,
+      city: show.city || '',
       date: showDate,
       time: showTime,
-      ticket_price: show.ticket_price?.toString() || '',
-      ticket_url: show.ticket_url || '',
+      ticket_price: show.ticket_price || '',
+      ticket_link: show.ticket_link || '',
       show_types: show.show_types || []
     });
   };
@@ -272,10 +276,11 @@ const ScheduleManager = () => {
       title: '',
       description: '',
       venue: '',
+      city: '',
       date: new Date(),
       time: new Date(),
       ticket_price: '',
-      ticket_url: '',
+      ticket_link: '',
       show_types: []
     });
     setEditingShow(null);
@@ -402,8 +407,8 @@ const ScheduleManager = () => {
             <Box sx={{ flex: '1 1 100%' }}>
               <TextField
                 label="购票链接"
-                value={showForm.ticket_url}
-                onChange={(e) => setShowForm({ ...showForm, ticket_url: e.target.value })}
+                value={showForm.ticket_link}
+                onChange={(e) => setShowForm({ ...showForm, ticket_link: e.target.value })}
                 fullWidth
               />
             </Box>
