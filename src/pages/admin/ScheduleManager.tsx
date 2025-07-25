@@ -23,8 +23,11 @@ import {
   TableContainer,
   TableHead,
   TableRow,
+  OutlinedInput,
+  SelectChangeEvent,
 } from '@mui/material';
-import { DateTimePicker } from '@mui/x-date-pickers/DateTimePicker';
+import { DatePicker } from '@mui/x-date-pickers/DatePicker';
+import { TimePicker } from '@mui/x-date-pickers/TimePicker';
 import { LocalizationProvider } from '@mui/x-date-pickers/LocalizationProvider';
 import { AdapterDateFns } from '@mui/x-date-pickers/AdapterDateFns';
 import { zhCN } from 'date-fns/locale';
@@ -43,8 +46,7 @@ interface Show {
   time: string;
   ticket_price?: number;
   ticket_url?: string;
-  show_type: string;
-  show_type_id?: number;
+  show_types?: number[];
   created_at: string;
 }
 
@@ -69,16 +71,17 @@ const ScheduleManager = () => {
     description: '',
     venue: '',
     date: new Date(),
+    time: new Date(),
     ticket_price: '',
     ticket_url: '',
-    show_type: ''
+    show_types: [] as number[]
   });
 
   const fetchData = async () => {
     try {
       setLoading(true);
       
-      // 先获取演出类型数据
+      // 获取演出类型数据
       const { data: typesData, error: typesError } = await supabase
         .from('show_types')
         .select('*')
@@ -91,22 +94,31 @@ const ScheduleManager = () => {
         setShowTypes(typesData || []);
       }
       
-      // 获取演出数据
+      // 获取演出数据和类型关联
       const { data: showsData, error: showsError } = await supabase
         .from('shows')
-        .select('*')
+        .select(`
+          *,
+          show_type_relations (
+            type_id,
+            show_types (
+              id,
+              name
+            )
+          )
+        `)
         .order('date', { ascending: true });
         
       if (showsError) {
         console.error('获取演出数据失败:', showsError);
         setSnackbar({ open: true, message: '获取演出数据失败', severity: 'error' });
       } else {
-        // 合并演出类型名称
+        // 处理演出数据，提取类型信息
         const processedShows = (showsData || []).map(show => {
-          const showType = (typesData || []).find(type => type.id === show.show_type_id);
+          const showTypeIds = show.show_type_relations?.map((rel: any) => rel.type_id) || [];
           return {
             ...show,
-            show_type: showType?.name || '未分类'
+            show_types: showTypeIds
           };
         });
         setShows(processedShows);
@@ -124,7 +136,7 @@ const ScheduleManager = () => {
   }, []);
 
   const handleSubmit = async () => {
-    if (!showForm.title || !showForm.venue || !showForm.show_type) {
+    if (!showForm.title || !showForm.venue || showForm.show_types.length === 0) {
       setSnackbar({ open: true, message: '请填写必填字段', severity: 'error' });
       return;
     }
@@ -135,26 +147,59 @@ const ScheduleManager = () => {
         description: showForm.description || null,
         venue: showForm.venue,
         date: showForm.date.toISOString().split('T')[0],
-        time: showForm.date.toTimeString().split(' ')[0],
+        time: showForm.time.toTimeString().split(' ')[0].substring(0, 5),
         ticket_price: showForm.ticket_price ? parseFloat(showForm.ticket_price) : null,
         ticket_url: showForm.ticket_url || null,
-        show_type_id: parseInt(showForm.show_type)
       };
 
+      let showId;
       let error;
+      
       if (editingShow) {
         ({ error } = await supabase
           .from('shows')
           .update(showData)
           .eq('id', editingShow.id));
+        showId = editingShow.id;
       } else {
-        ({ error } = await supabase
+        const { data, error: insertError } = await supabase
           .from('shows')
-          .insert(showData));
+          .insert(showData)
+          .select('id')
+          .single();
+        error = insertError;
+        showId = data?.id;
       }
 
       if (error) {
         throw error;
+      }
+
+      // 处理演出类型关联
+      if (showId) {
+        // 如果是编辑，先删除旧的关联
+        if (editingShow) {
+          await supabase
+            .from('show_type_relations')
+            .delete()
+            .eq('show_id', showId);
+        }
+
+        // 插入新的类型关联
+        if (showForm.show_types.length > 0) {
+          const relations = showForm.show_types.map(typeId => ({
+            show_id: showId,
+            type_id: typeId
+          }));
+
+          const { error: relationError } = await supabase
+            .from('show_type_relations')
+            .insert(relations);
+
+          if (relationError) {
+            console.error('演出类型关联失败:', relationError);
+          }
+        }
       }
 
       setSnackbar({ 
@@ -173,15 +218,22 @@ const ScheduleManager = () => {
 
   const handleEdit = (show: Show) => {
     setEditingShow(show);
-    const showDateTime = new Date(`${show.date}T${show.time}`);
+    
+    // 分别处理日期和时间
+    const showDate = new Date(show.date);
+    const [hours, minutes] = show.time.split(':');
+    const showTime = new Date();
+    showTime.setHours(parseInt(hours), parseInt(minutes), 0, 0);
+    
     setShowForm({
       title: show.title,
       description: show.description || '',
       venue: show.venue,
-      date: showDateTime,
+      date: showDate,
+      time: showTime,
       ticket_price: show.ticket_price?.toString() || '',
       ticket_url: show.ticket_url || '',
-      show_type: show.show_type_id?.toString() || ''
+      show_types: show.show_types || []
     });
   };
 
@@ -189,6 +241,13 @@ const ScheduleManager = () => {
     if (!showToDelete) return;
 
     try {
+      // 先删除类型关联
+      await supabase
+        .from('show_type_relations')
+        .delete()
+        .eq('show_id', showToDelete.id);
+
+      // 再删除演出
       const { error } = await supabase
         .from('shows')
         .delete()
@@ -214,13 +273,30 @@ const ScheduleManager = () => {
       description: '',
       venue: '',
       date: new Date(),
+      time: new Date(),
       ticket_price: '',
       ticket_url: '',
-      show_type: ''
+      show_types: []
     });
     setEditingShow(null);
   };
 
+  // 处理多选演出类型
+  const handleShowTypesChange = (event: SelectChangeEvent<number[]>) => {
+    const value = event.target.value;
+    setShowForm({
+      ...showForm,
+      show_types: typeof value === 'string' ? [] : value
+    });
+  };
+
+  // 获取演出类型名称
+  const getShowTypeNames = (typeIds: number[]) => {
+    return typeIds.map(id => {
+      const type = showTypes.find(t => t.id === id);
+      return type?.name || '未知类型';
+    });
+  };
 
   return (
     <LocalizationProvider dateAdapter={AdapterDateFns} adapterLocale={zhCN}>
@@ -257,29 +333,36 @@ const ScheduleManager = () => {
                 />
               </Box>
               
-              <Box sx={{ flex: { xs: '1 1 100%', md: '1 1 calc(25% - 8px)' } }}>
+              <Box sx={{ flex: { xs: '1 1 100%', md: '1 1 calc(50% - 8px)' } }}>
                 <FormControl fullWidth required>
                   <InputLabel>演出类型</InputLabel>
                   <Select
-                    value={showForm.show_type}
-                    label="演出类型"
-                    onChange={(e) => setShowForm({ ...showForm, show_type: e.target.value })}
+                    multiple
+                    value={showForm.show_types}
+                    onChange={handleShowTypesChange}
+                    input={<OutlinedInput label="演出类型" />}
+                    renderValue={(selected) => (
+                      <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
+                        {getShowTypeNames(selected).map((name) => (
+                          <Chip key={name} label={name} size="small" />
+                        ))}
+                      </Box>
+                    )}
                   >
                     {showTypes.map((type) => (
-                      <MenuItem key={type.id} value={type.id.toString()}>
+                      <MenuItem key={type.id} value={type.id}>
                         {type.name}
                       </MenuItem>
                     ))}
                   </Select>
                 </FormControl>
               </Box>
-              
             </Box>
             
             <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 2 }}>
-              <Box sx={{ flex: { xs: '1 1 100%', md: '1 1 calc(50% - 8px)' } }}>
-                <DateTimePicker
-                  label="演出时间"
+              <Box sx={{ flex: { xs: '1 1 100%', md: '1 1 calc(33% - 8px)' } }}>
+                <DatePicker
+                  label="演出日期"
                   value={showForm.date}
                   onChange={(newValue) => newValue && setShowForm({ ...showForm, date: newValue })}
                   slotProps={{
@@ -291,7 +374,21 @@ const ScheduleManager = () => {
                 />
               </Box>
               
-              <Box sx={{ flex: { xs: '1 1 100%', md: '1 1 calc(50% - 8px)' } }}>
+              <Box sx={{ flex: { xs: '1 1 100%', md: '1 1 calc(33% - 8px)' } }}>
+                <TimePicker
+                  label="演出时间"
+                  value={showForm.time}
+                  onChange={(newValue) => newValue && setShowForm({ ...showForm, time: newValue })}
+                  slotProps={{
+                    textField: {
+                      fullWidth: true,
+                      required: true
+                    }
+                  }}
+                />
+              </Box>
+              
+              <Box sx={{ flex: { xs: '1 1 100%', md: '1 1 calc(33% - 8px)' } }}>
                 <TextField
                   label="票价（元）"
                   type="number"
@@ -393,11 +490,16 @@ const ScheduleManager = () => {
                       </Typography>
                     </TableCell>
                     <TableCell>
-                      <Chip 
-                        label={show.show_type} 
-                        size="small" 
-                        variant="outlined"
-                      />
+                      <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
+                        {getShowTypeNames(show.show_types || []).map((typeName, index) => (
+                          <Chip 
+                            key={index}
+                            label={typeName} 
+                            size="small" 
+                            variant="outlined"
+                          />
+                        ))}
+                      </Box>
                     </TableCell>
                     <TableCell>
                       {show.ticket_price ? `¥${show.ticket_price}` : '免费'}
